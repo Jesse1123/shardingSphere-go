@@ -1,0 +1,300 @@
+databaseName: zmdb
+
+dataSources:
+  primary_ds_0:
+    url: jdbc:mysql://192.168.77.81:3306/zmdb_1?serverTimezone=UTC&useSSL=false
+    username: root
+    password: 123456
+    connectionTimeoutMilliseconds: 30000
+    idleTimeoutMilliseconds: 60000
+    maxLifetimeMilliseconds: 1800000
+    maxPoolSize: 50
+
+  replica_ds_0:
+    url: jdbc:mysql://192.168.77.81:3306/zmdb_1?serverTimezone=UTC&useSSL=false
+    username: root
+    password: 123456
+    connectionTimeoutMilliseconds: 30000
+    idleTimeoutMilliseconds: 60000
+    maxLifetimeMilliseconds: 1800000
+    maxPoolSize: 50
+
+  primary_ds_1:
+    url: jdbc:mysql://192.168.77.81:3306/zmdb_2?serverTimezone=UTC&useSSL=false
+    username: root
+    password: 123456
+    connectionTimeoutMilliseconds: 30000
+    idleTimeoutMilliseconds: 60000
+    maxLifetimeMilliseconds: 1800000
+    maxPoolSize: 50
+
+  replica_ds_1:
+    url: jdbc:mysql://192.168.77.81:3306/zmdb_2?serverTimezone=UTC&useSSL=false
+    username: root
+    password: 123456
+    connectionTimeoutMilliseconds: 30000
+    idleTimeoutMilliseconds: 60000
+    maxLifetimeMilliseconds: 1800000
+    maxPoolSize: 50
+
+rules:
+  - !READWRITE_SPLITTING
+    dataSourceGroups:
+      readwrite_ds_0:
+        writeDataSourceName: primary_ds_0
+        readDataSourceNames:
+          - replica_ds_0
+        loadBalancerName: random
+      readwrite_ds_1:
+        writeDataSourceName: primary_ds_1
+        readDataSourceNames:
+          - replica_ds_1
+        loadBalancerName: random
+    loadBalancers:
+      random:
+        type: RANDOM
+
+  - !SHARDING
+    tables:
+      core_coin_logs:
+        actualDataNodes: readwrite_ds_${0..1}.core_coin_logs_${0..256}
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: core_coin_inline
+
+      core_users:
+        actualDataNodes: readwrite_ds_${0..1}.core_users
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+
+      core_user_wallet:
+        actualDataNodes: readwrite_ds_${0..1}.core_user_wallet_$(0..16)
+        databaseStrategy:
+          standard:
+            shardingColumn: co_uw_id
+            shardingAlgorithmName: database_wallet_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_uw_id
+            shardingAlgorithmName: core_user_wallet_inline
+          
+      slots_core_game_record:
+        actualDataNodes: readwrite_ds_${0..1}.slots_core_game_record_${0..256}
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: slots_core_game_record_inline
+
+      core_users_log:
+        actualDataNodes: readwrite_ds_${0..1}.core_users_log_${0..128}
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: core_users_log_inline
+
+      core_users_payment:
+        actualDataNodes: readwrite_ds_${0..1}.core_users_payment_${202601..202612}
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_usp_month
+            shardingAlgorithmName: payment_time_inline
+
+      core_users_withdraw:
+        actualDataNodes: readwrite_ds_${0..1}.core_users_withdraw_${202601..202612}
+        databaseStrategy:
+          standard:
+            shardingColumn: co_us_id
+            shardingAlgorithmName: database_inline
+        tableStrategy:
+          standard:
+            shardingColumn: co_usw_month
+            shardingAlgorithmName: withdra_time_inline
+
+      ad_identity_menus:
+        actualDataNodes: readwrite_ds_0.ad_identity_menus
+      ad_identities:
+        actualDataNodes: readwrite_ds_0.ad_identities 
+      ad_logs:
+        actualDataNodes: readwrite_ds_0.ad_logs
+      ad_menus:
+        actualDataNodes: readwrite_ds_0.ad_menus
+      ad_messages:
+        actualDataNodes: readwrite_ds_0.ad_messages
+      ad_permissions:
+        actualDataNodes: readwrite_ds_0.ad_permissions
+      ad_roles:
+        actualDataNodes: readwrite_ds_0.ad_roles
+      ad_user_permissions:
+        actualDataNodes: readwrite_ds_0.ad_user_permissions
+      ad_users:
+        actualDataNodes: readwrite_ds_0.ad_users
+      ad_whitelist:
+        actualDataNodes: readwrite_ds_0.ad_whitelist
+      ad_settlement:
+        actualDataNodes: readwrite_ds_0.ad_settlement
+      ad_payment_reconciliation:
+        actualDataNodes: readwrite_ds_0.ad_payment_reconciliation
+      ad_recommend_game:
+        actualDataNodes: readwrite_ds_0.ad_recommend_game
+      ad_recommended:
+        actualDataNodes: readwrite_ds_0.ad_recommended
+        
+      core_area:
+        actualDataNodes: readwrite_ds_0.core_area
+      core_channel_areas:
+        actualDataNodes: readwrite_ds_0.core_channel_areas
+      core_channel_daily_stats:
+        actualDataNodes: readwrite_ds_0.core_channel_daily_stats
+      core_channel_games:
+        actualDataNodes: readwrite_ds_0.core_channel_games
+      core_channel_retention:
+        actualDataNodes: readwrite_ds_0.core_channel_retention
+      core_channels:
+        actualDataNodes: readwrite_ds_0.core_channels
+      core_configs: 
+        actualDataNodes: readwrite_ds_0.core_configs
+      core_currency:
+        actualDataNodes: readwrite_ds_0.core_currency
+      core_exchange_rates:
+        actualDataNodes: readwrite_ds_0.core_exchange_rates
+      core_game_areas:
+        actualDataNodes: readwrite_ds_0.core_game_areas
+      core_game_daily_stats:
+        actualDataNodes: readwrite_ds_0.core_game_daily_stats
+      core_game_exceptions:
+        actualDataNodes: readwrite_ds_0.core_game_exceptions
+      core_game_income_stats:
+        actualDataNodes: readwrite_ds_0.core_game_income_stats
+      core_game_rates:
+        actualDataNodes: readwrite_ds_0.core_game_rates
+      core_game_warn_config:
+        actualDataNodes: readwrite_ds_0.core_game_warn_config
+      core_games:
+        actualDataNodes: readwrite_ds_0.core_games
+      core_games_room:
+        actualDataNodes: readwrite_ds_0.core_games_room
+      core_gate:
+        actualDataNodes: readwrite_ds_0.core_gate
+      core_gate_node:
+        actualDataNodes: readwrite_ds_0.core_gate_node
+      core_gm_config:
+        actualDataNodes: readwrite_ds_0.core_gm_config
+      core_language_list:
+        actualDataNodes: readwrite_ds_0.core_language_list
+      core_languages:
+        actualDataNodes: readwrite_ds_0.core_languages
+      core_log:
+        actualDataNodes: readwrite_ds_0.core_log
+      core_user_daily_stats:
+        actualDataNodes: readwrite_ds_0.core_user_daily_stats
+      core_wallets:
+        actualDataNodes: readwrite_ds_0.core_wallets
+      rtp_log:
+        actualDataNodes: readwrite_ds_0.rtp_log
+      slots_core_config:
+        actualDataNodes: readwrite_ds_0.slots_core_config
+      core_player_anomaly:
+        actualDataNodes: readwrite_ds_0.core_player_anomaly
+      core_player_anomaly_record:
+        actualDataNodes: readwrite_ds_0.core_player_anomaly_record
+      core_player_game_exceptions:
+        actualDataNodes: readwrite_ds_0.core_player_game_exceptions
+      core_player_ip_monitor:
+        actualDataNodes: readwrite_ds_0.core_player_ip_monitor
+      core_player_report_recheck:
+        actualDataNodes: readwrite_ds_0.core_player_report_recheck
+      core_abnormal_comment:
+        actualDataNodes: readwrite_ds_0.core_abnormal_comment
+      core_document_task:
+        actualDataNodes: readwrite_ds_0.core_document_task
+      core_country:
+        actualDataNodes: readwrite_ds_0.core_country
+      core_language_log:
+        actualDataNodes: readwrite_ds_0.core_language_log
+      core_language_version:
+        actualDataNodes: readwrite_ds_0.core_language_version
+      core_language_final:
+        actualDataNodes: readwrite_ds_0.core_language_final
+      core_translation_task:
+        actualDataNodes: readwrite_ds_0.core_translation_task
+      core_user_game:
+        actualDataNodes: readwrite_ds_0.core_user_game
+      slots_core_init_symbol:
+        actualDataNodes: readwrite_ds_0.slots_core_init_symbol
+      ad_tag:
+        actualDataNodes: readwrite_ds_0.ad_tag
+      core_activity:
+        actualDataNodes: readwrite_ds_0.core_activity
+      core_banner:
+        actualDataNodes: readwrite_ds_0.core_banner
+      core_ranking_list:
+        actualDataNodes: readwrite_ds_0.core_ranking_list
+      ad_channel_payment:
+        actualDataNodes: readwrite_ds_0.ad_channel_payment
+      core_wallets_config:
+        actualDataNodes: readwrite_ds_0.core_wallets_config
+      core_users_remark:
+        actualDataNodes: readwrite_ds_0.core_users_remark
+      core_channel_areas_rtp:
+        actualDataNodes: readwrite_ds_0.core_channel_areas_rtp
+
+    shardingAlgorithms:
+      # 分库算法
+      database_inline:
+        type: INLINE
+        props:
+          algorithm-expression: readwrite_ds_$->{co_us_id % 2}
+      database_wallet_inline:
+        type: INLINE
+        props:
+          algorithm-expression: readwrite_ds_$->{co_uw_id % 2}
+      
+      # 分表算法
+      core_coin_inline: 
+        type: INLINE
+        props:
+          algorithm-expression: core_coin_logs_$->{co_us_id % 256}
+      
+      slots_core_game_record_inline:
+        type: INLINE
+        props:
+          algorithm-expression: slots_core_game_record_$->{co_us_id % 256}
+      core_users_log_inline:
+        type: INLINE
+        props:
+          algorithm-expression: core_users_log_$->{co_us_id % 128}
+      payment_time_inline:
+        type: INLINE
+        props:
+          algorithm-expression: core_users_payment_$->{co_usp_month}
+      withdra_time_inline:
+        type: INLINE
+        props:
+          algorithm-expression: core_users_withdraw_$->{co_usw_month}
+      core_user_wallet_inline:
+        type: INLINE
+        props:
+          algorithm-expression: core_user_wallet_$->{co_uw_id % 16}
+
+    keyGenerators:
+      snowflake:
+        type: SNOWFLAKE

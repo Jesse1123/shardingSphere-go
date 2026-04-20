@@ -1,0 +1,73 @@
+# 模式配置
+mode:
+  type: Cluster
+  repository:
+    type: Nacos
+    props:
+      namespace: dev  # Nacos 命名空间（注意拼写，应该是 ShardingProxy？）
+      server-lists: 192.168.77.220:8848  # Nacos 地址
+      group: DEFAULT_GROUP
+      # 以下是 Nacos 相关的配置
+      dataId: ShrdingProxy  # 规则配置的 dataId
+      # 可选：指定逻辑数据库名，对应 Nacos 中的配置
+      # clusterName: sharding_db
+      retryIntervalMilliseconds: 500
+      timeToLiveSeconds: 60
+      maxRetries: 3
+      operationTimeoutMilliseconds: 500
+      # 启用配置自动刷新
+      autoRefresh: true
+      watchEnabled: true
+      watchDelay: 3000
+      # Nacos 认证（如果需要）
+      # username: nacos
+      # password: nacos
+
+# 权限配置
+authority:
+  users:
+    - user: root@%
+      password: 123456
+      admin: true
+    - user: sharding@%
+      password: sharding
+      admin: false
+  privilege:
+    type: ALL_PERMITTED
+
+
+# 全局属性配置
+props:
+  sql-show: true
+  sql-simple: true
+  kernel-executor-size: 20
+  max-connections-size-per-query: 5
+  check-table-metadata-enabled: false
+  proxy-frontend-flush-threshold: 128
+  proxy-frontend-executor-size: 0
+  proxy-backend-query-fetch-size: -1
+  proxy-frontend-max-connections: 0
+
+  system-log-level: DEBUG
+#  max-connections-size-per-query: 1
+#  kernel-executor-size: 16  # Infinite by default.
+#  proxy-frontend-flush-threshold: 128  # The default value is 128.
+#  # sql-show is the same as props in logger ShardingSphere-SQL, and its priority is lower than logging rule
+#  check-table-metadata-enabled: false
+#    # Proxy backend query fetch size. A larger value may increase the memory usage of ShardingSphere Proxy.
+#    # The default value is -1, which means set the minimum value for different JDBC drivers.
+#  proxy-backend-query-fetch-size: -1
+#  proxy-frontend-executor-size: 0 # Proxy frontend executor size. The default value is 0, which means let Netty decide.
+#  proxy-frontend-max-connections: 0 # Less than or equal to 0 means no limitation.
+  proxy-default-port: 3307 # Proxy default port.
+#  proxy-netty-backlog: 1024 # Proxy netty backlog.
+#  cdc-server-port: 33071 # CDC server port
+  proxy-frontend-ssl-enabled: false
+#  proxy-frontend-ssl-cipher: ''
+#  proxy-frontend-ssl-version: TLSv1.2,TLSv1.3
+
+
+  # 启用元数据自动刷新
+  auto-refresh-metadata: true
+  # 配置自动刷新
+  configuration-overwrite: true
