@@ -45,11 +45,6 @@ ShardingSphere-Go 是一个用 Go 语言实现的 MySQL 数据库分库分表代
 ### config.yaml 完整配置示例
 
 ```yaml
-# 代理用户认证
-proxyUser:
-  username: user
-  password: user123
-
 # 逻辑数据库名
 databaseName: zmdb
 

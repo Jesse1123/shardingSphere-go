@@ -68,9 +68,12 @@ func RouteAndExecuteSQLWithResult(sql string) (*SQLResult, error) {
 		return handleShowDatabases()
 	}
 
-	// Handle SHOW TABLES - only show configured sharding tables
-	if strings.HasPrefix(upperSQL, "SHOW TABLES") {
+	// Handle SHOW TABLES / SHOW FULL TABLES / SHOW TABLE STATUS - only show configured sharding tables
+	if strings.HasPrefix(upperSQL, "SHOW TABLES") || strings.HasPrefix(upperSQL, "SHOW FULL TABLES") {
 		return handleShowTables()
+	}
+	if strings.HasPrefix(upperSQL, "SHOW TABLE STATUS") {
+		return handleShowTableStatus()
 	}
 
 	// Handle USE database - only allow configured database
@@ -746,6 +749,24 @@ func handleShowTables() (*SQLResult, error) {
 	}
 	return &SQLResult{
 		Columns: []string{"Tables_in_" + config.GetDatabaseName()},
+		Rows:    rows,
+	}, nil
+}
+
+// handleShowTableStatus returns table status for configured sharding tables only
+func handleShowTableStatus() (*SQLResult, error) {
+	tables := config.GetAllShardingTables()
+	rows := make([]map[string]interface{}, 0, len(tables))
+	for _, t := range tables {
+		rows = append(rows, map[string]interface{}{
+			"Name":    t,
+			"Engine":  "InnoDB",
+			"Comment": "",
+			"Rows":    0,
+		})
+	}
+	return &SQLResult{
+		Columns: []string{"Name", "Engine", "Comment", "Rows"},
 		Rows:    rows,
 	}, nil
 }

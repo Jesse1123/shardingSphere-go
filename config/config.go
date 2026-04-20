@@ -326,6 +326,16 @@ func GetAllShardingTables() []string {
 	return tables
 }
 
+// IsShardedTable returns true if table has table sharding (actualDataNodes contains table range)
+func IsShardedTable(tableName string) bool {
+	rule, err := GetShardingRule(tableName)
+	if err != nil {
+		return false
+	}
+	// Check if actualDataNodes has table range pattern like core_coin_logs_${0..256}
+	return strings.Contains(rule.ActualDataNodes, "${")
+}
+
 // GetShardingAlgorithm returns a sharding algorithm by name
 func GetShardingAlgorithm(name string) (ShardingAlgorithm, error) {
 	for _, rule := range shardConfig.Rules {
@@ -646,7 +656,6 @@ func IsSystemQuery(sql string) bool {
 	systemPatterns := []string{
 		"SHOW VARIABLES",
 		"SHOW DATABASES",
-		"SHOW TABLES",
 		"SHOW COLUMNS",
 		"SHOW CREATE TABLE",
 		"SHOW INDEX",
