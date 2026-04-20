@@ -78,6 +78,7 @@ func RouteAndExecuteSQLWithResult(sql string) (*SQLResult, error) {
 
 	// Handle USE database - only allow configured database
 	if strings.HasPrefix(upperSQL, "USE ") {
+		log.Printf("Handling USE SQL: %s", sql)
 		return handleUseDatabase(sql)
 	}
 
@@ -162,6 +163,7 @@ func routeWithHint(sql, tableName, hintDS, hintTable string) (*SQLResult, error)
 }
 
 // buildRouteContext builds the routing context
+// When sharding value is not provided (e.g., no WHERE clause), routes to all data nodes (broadcast)
 func buildRouteContext(sql, tableName string, rule config.TableRule, nodes interface{}) (*RouteContext, error) {
 	ctx := &RouteContext{
 		SQL:       sql,
@@ -177,16 +179,17 @@ func buildRouteContext(sql, tableName string, rule config.TableRule, nodes inter
 	// Get sharding column for database
 	var dbShardingColumn, tableShardingColumn string
 	var dbShardingValue, tableShardingValue interface{}
+	var hasDBValue, hasTableValue bool
 
 	if needDBRoute {
 		dbShardingColumn = rule.DatabaseStrategy.Standard.ShardingColumn
 		parser := NewSQLParser(sql)
 		val, err := parser.ExtractShardingValue(dbShardingColumn)
-		if err != nil {
-			return nil, fmt.Errorf("missing sharding value for column '%s': %v", dbShardingColumn, err)
+		if err == nil {
+			dbShardingValue = val
+			ctx.ShardingValue = val
+			hasDBValue = true
 		}
-		dbShardingValue = val
-		ctx.ShardingValue = val
 	}
 
 	if needTableRoute {
@@ -194,17 +197,18 @@ func buildRouteContext(sql, tableName string, rule config.TableRule, nodes inter
 		if tableShardingColumn != dbShardingColumn {
 			parser := NewSQLParser(sql)
 			val, err := parser.ExtractShardingValue(tableShardingColumn)
-			if err != nil {
-				return nil, fmt.Errorf("missing sharding value for column '%s': %v", tableShardingColumn, err)
+			if err == nil {
+				tableShardingValue = val
+				hasTableValue = true
 			}
-			tableShardingValue = val
 		} else {
 			tableShardingValue = dbShardingValue
+			hasTableValue = hasDBValue
 		}
 	}
 
 	// Calculate data source
-	if needDBRoute {
+	if needDBRoute && hasDBValue {
 		ds, err := calculateDataSource(rule.DatabaseStrategy.Standard.ShardingAlgorithmName, dbShardingValue)
 		if err != nil {
 			return nil, err
@@ -213,7 +217,7 @@ func buildRouteContext(sql, tableName string, rule config.TableRule, nodes inter
 	}
 
 	// Calculate table
-	if needTableRoute {
+	if needTableRoute && hasTableValue {
 		table, err := calculateTable(rule.TableStrategy.Standard.ShardingAlgorithmName, tableShardingValue)
 		if err != nil {
 			return nil, err
@@ -222,6 +226,7 @@ func buildRouteContext(sql, tableName string, rule config.TableRule, nodes inter
 	}
 
 	// Parse and expand data nodes
+	// If no specific sharding value, expand all nodes (broadcast query)
 	parsedNodes, err := expandDataNodes(nodes, ctx.DataSource, ctx.Table)
 	if err != nil {
 		return nil, err
@@ -365,11 +370,23 @@ func expandDataNodes(nodes interface{}, targetDS, targetTable string) ([]config.
 		result = append(result, n)
 	case *config.DataNodeRange:
 		rng := n
-		if rng.TableRange[0] == rng.TableRange[1] && rng.TableRange[0] == 0 {
-			// Database-only sharding
+		
+		// Check if it's fixed data source (DataSourceRange is [0,0] meaning use DataSourcePattern directly)
+		isFixedDS := rng.DataSourceRange[0] == 0 && rng.DataSourceRange[1] == 0
+		// Check if it's fixed table (TableRange is [0,0] meaning use TablePattern directly)
+		isFixedTable := rng.TableRange[0] == 0 && rng.TableRange[1] == 0
+		
+		if isFixedTable {
+			// Database-only sharding or single table
 			if targetDS != "" {
 				result = append(result, config.DataNode{
 					DataSource: targetDS,
+					Table:      rng.TablePattern,
+				})
+			} else if isFixedDS {
+				// Fixed data source, fixed table
+				result = append(result, config.DataNode{
+					DataSource: rng.DataSourcePattern,
 					Table:      rng.TablePattern,
 				})
 			} else {
@@ -382,10 +399,15 @@ func expandDataNodes(nodes interface{}, targetDS, targetTable string) ([]config.
 				}
 			}
 		} else {
-			// Database and table sharding
-			dsList := []string{targetDS}
-			if targetDS == "" {
-				dsList = nil
+			// Table sharding (with or without database sharding)
+			var dsList []string
+			if targetDS != "" {
+				dsList = []string{targetDS}
+			} else if isFixedDS {
+				// Fixed data source, use DataSourcePattern directly
+				dsList = []string{rng.DataSourcePattern}
+			} else {
+				// Expand all data sources
 				for ds := rng.DataSourceRange[0]; ds <= rng.DataSourceRange[1]; ds++ {
 					dsList = append(dsList, fmt.Sprintf("%s_%d", rng.DataSourcePattern, ds))
 				}
@@ -446,14 +468,19 @@ func executeOnMultipleNodes(ctx *RouteContext, sqlType SQLType) (*SQLResult, err
 	results := make([]*SQLResult, 0, len(ctx.ParsedNodes))
 	errors := make([]error, 0)
 
+	log.Printf("Executing on %d nodes: %v", len(ctx.ParsedNodes), ctx.ParsedNodes)
+
 	for _, node := range ctx.ParsedNodes {
 		wg.Add(1)
 		go func(n config.DataNode) {
 			defer wg.Done()
 
 			rewrittenSQL := RewriteTableInSQL(ctx.SQL, n.Table)
+			log.Printf("Node %s.%s: rewritten SQL: %s", n.DataSource, n.Table, rewrittenSQL)
+			
 			db, err := getDBConnection(n.DataSource)
 			if err != nil {
+				log.Printf("Node %s.%s: connection error: %v", n.DataSource, n.Table, err)
 				mu.Lock()
 				errors = append(errors, err)
 				mu.Unlock()
@@ -463,8 +490,10 @@ func executeOnMultipleNodes(ctx *RouteContext, sqlType SQLType) (*SQLResult, err
 			result, err := executeSQL(db, rewrittenSQL)
 			mu.Lock()
 			if err != nil {
+				log.Printf("Node %s.%s: query error: %v", n.DataSource, n.Table, err)
 				errors = append(errors, err)
 			} else if result != nil {
+				log.Printf("Node %s.%s: got %d rows", n.DataSource, n.Table, len(result.Rows))
 				results = append(results, result)
 			}
 			mu.Unlock()
@@ -472,6 +501,8 @@ func executeOnMultipleNodes(ctx *RouteContext, sqlType SQLType) (*SQLResult, err
 	}
 
 	wg.Wait()
+
+	log.Printf("Multi-node execution complete: %d success, %d errors", len(results), len(errors))
 
 	if len(errors) > 0 && len(results) == 0 {
 		return nil, errors[0]
@@ -823,7 +854,10 @@ func handleUseDatabase(sql string) (*SQLResult, error) {
 
 	// Only allow configured database
 	configuredDB := config.GetDatabaseName()
+	log.Printf("USE database request: dbName='%s' (len=%d), configured='%s' (len=%d), match=%v", 
+		dbName, len(dbName), configuredDB, len(configuredDB), dbName == configuredDB)
 	if dbName != configuredDB && dbName != "information_schema" {
+		log.Printf("USE database rejected: '%s' != '%s'", dbName, configuredDB)
 		return nil, fmt.Errorf("Unknown database '%s'", dbName)
 	}
 

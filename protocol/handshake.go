@@ -12,6 +12,7 @@ import (
 	"shardingSphere-go/config"
 	"shardingSphere-go/sqlrouter"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,30 +40,30 @@ var (
 
 // MySQL command codes
 const (
-	comQuit                = 0x01
-	comInitDB              = 0x02
-	comQuery               = 0x03
-	comFieldList           = 0x04
-	comCreateDB            = 0x05
-	comDropDB              = 0x06
-	comReload              = 0x07
-	comShutdown            = 0x08
-	comStatistics          = 0x09
-	comProcessInfo         = 0x0a
-	comConnect             = 0x0b
-	comProcessKill         = 0x0c
-	comDebug               = 0x0d
-	comPing                = 0x0e
-	comTime                = 0x0f
-	comDelayedInsert       = 0x10
-	comChangeUser          = 0x11
-	comSetOption           = 0x1b
-	comStmtPrepare         = 0x16
-	comStmtExecute         = 0x17
-	comStmtSendLongData    = 0x18
-	comStmtClose           = 0x19
-	comStmtReset           = 0x1a
-	comSetVariable         = 0x22
+	comQuit                  = 0x01
+	comInitDB                = 0x02
+	comQuery                 = 0x03
+	comFieldList             = 0x04
+	comCreateDB              = 0x05
+	comDropDB                = 0x06
+	comReload                = 0x07
+	comShutdown              = 0x08
+	comStatistics            = 0x09
+	comProcessInfo           = 0x0a
+	comConnect               = 0x0b
+	comProcessKill           = 0x0c
+	comDebug                 = 0x0d
+	comPing                  = 0x0e
+	comTime                  = 0x0f
+	comDelayedInsert         = 0x10
+	comChangeUser            = 0x11
+	comSetOption             = 0x1b
+	comStmtPrepare           = 0x16
+	comStmtExecute           = 0x17
+	comStmtSendLongData      = 0x18
+	comStmtClose             = 0x19
+	comStmtReset             = 0x1a
+	comSetVariable           = 0x22
 	comSetVariableDeprecated = 0x27
 )
 
@@ -425,8 +426,17 @@ func RunSession(conn net.Conn) error {
 			}
 		case comInitDB:
 			// Change default schema/database
-			dbName := string(packet[1:])
-			log.Printf("Switching database to: %s", dbName)
+			dbName := strings.TrimSpace(strings.Trim(string(packet[1:]), "\x00"))
+			configuredDB := config.GetDatabaseName()
+			log.Printf("Switching database to: '%s' (len=%d), configured: '%s' (len=%d)", dbName, len(dbName), configuredDB, len(configuredDB))
+			// Validate database name
+			if dbName != configuredDB && dbName != "information_schema" {
+				log.Printf("Database mismatch: '%s' != '%s'", dbName, configuredDB)
+				if err := writeErrPacket(conn, seq+1, 1049, "42000", fmt.Sprintf("Unknown database '%s'", dbName)); err != nil {
+					return err
+				}
+				continue
+			}
 			// Acknowledge with OK
 			if err := sendOKPacket(conn, seq+1, 0); err != nil {
 				return err
@@ -621,11 +631,11 @@ func handlePrepare(conn net.Conn, seq byte, sql string) error {
 
 	// Send prepared OK packet
 	var payload bytes.Buffer
-	payload.WriteByte(0x00) // OK header
-	writeLenEncInt(&payload, 0) // Statement ID
-	writeLenEncInt(&payload, 0) // Column count
+	payload.WriteByte(0x00)                     // OK header
+	writeLenEncInt(&payload, 0)                 // Statement ID
+	writeLenEncInt(&payload, 0)                 // Column count
 	writeLenEncInt(&payload, uint64(numParams)) // Parameter count
-	writeLenEncInt(&payload, 0) // Reserved (always 0)
+	writeLenEncInt(&payload, 0)                 // Reserved (always 0)
 
 	if err := writePacket(conn, seq, payload.Bytes()); err != nil {
 		return err

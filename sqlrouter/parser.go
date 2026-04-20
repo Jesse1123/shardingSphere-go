@@ -48,11 +48,11 @@ func ParseSQLType(sql string) SQLType {
 
 // SQLCondition represents a WHERE condition
 type SQLCondition struct {
-	Column    string
-	Operator  string
-	Value     string
-	LogicOp   string // AND, OR
-	Nested    bool
+	Column           string
+	Operator         string
+	Value            string
+	LogicOp          string // AND, OR
+	Nested           bool
 	NestedConditions []SQLCondition
 }
 
@@ -118,7 +118,7 @@ func (p *SQLParser) ExtractShardingCondition(shardingColumn string) (string, err
 	}
 
 	whereClause := sql[whereIdx+5:]
-	
+
 	// Find the end of WHERE clause (ORDER BY, GROUP BY, LIMIT, or end)
 	endIdx := len(whereClause)
 	for _, keyword := range []string{"ORDER BY", "GROUP BY", "LIMIT", "HAVING"} {
@@ -194,13 +194,37 @@ func (p *SQLParser) ExtractShardingValue(shardingColumn string) (interface{}, er
 }
 
 // extractFirstIdentifier extracts the first identifier from a string
+// Handles formats like: table, `table`, db.table, `db`.`table`, db.`table`, `db`.table
 func extractFirstIdentifier(s string) string {
 	s = strings.TrimSpace(s)
 
-	// Handle backtick quoted identifiers
+	// Handle backtick quoted identifiers - check for `db`.`table` pattern
 	if strings.HasPrefix(s, "`") {
-		if end := strings.Index(s[1:], "`"); end > 0 {
-			return s[1 : end+1]
+		// Find first closing backtick
+		firstEnd := strings.Index(s[1:], "`")
+		if firstEnd > 0 {
+			firstEnd++ // Adjust for the offset
+			// Check if followed by . and another identifier
+			afterFirst := strings.TrimSpace(s[firstEnd+1:])
+			if strings.HasPrefix(afterFirst, ".") {
+				// This is `db`.`table` or `db`.table format
+				afterDot := strings.TrimSpace(afterFirst[1:])
+				if strings.HasPrefix(afterDot, "`") {
+					// `db`.`table` format
+					if secondEnd := strings.Index(afterDot[1:], "`"); secondEnd > 0 {
+						return afterDot[1 : secondEnd+1]
+					}
+				} else {
+					// `db`.table format
+					fields := strings.Fields(afterDot)
+					if len(fields) > 0 {
+						name := strings.TrimRight(fields[0], ",")
+						return name
+					}
+				}
+			}
+			// Just a single quoted identifier
+			return s[1:firstEnd]
 		}
 	}
 
@@ -221,8 +245,12 @@ func extractFirstIdentifier(s string) string {
 	if len(fields) > 0 {
 		name := fields[0]
 		name = strings.TrimRight(name, ",")
+		// Handle db.table or db.`table` format
 		if idx := strings.Index(name, "."); idx != -1 {
-			name = name[idx+1:]
+			afterDot := name[idx+1:]
+			// Remove backticks if present
+			afterDot = strings.Trim(afterDot, "`")
+			return afterDot
 		}
 		name = strings.Trim(name, "`")
 		return name
@@ -236,7 +264,7 @@ func RewriteTableName(sql, oldTable, newTable string) string {
 	// Handle backtick quoted table names
 	sql = regexp.MustCompile(fmt.Sprintf("`%s`", regexp.QuoteMeta(oldTable))).
 		ReplaceAllString(sql, fmt.Sprintf("`%s`", newTable))
-	
+
 	// Handle unquoted table names
 	sql = regexp.MustCompile(fmt.Sprintf(`\b%s\b`, regexp.QuoteMeta(oldTable))).
 		ReplaceAllString(sql, newTable)
@@ -245,14 +273,36 @@ func RewriteTableName(sql, oldTable, newTable string) string {
 }
 
 // RewriteTableInSQL rewrites all table references in SQL
+// Also removes database name prefix (e.g., `db`.`table` -> `newTable`)
 func RewriteTableInSQL(sql, newTableName string) string {
 	parser := NewSQLParser(sql)
 	tableName := parser.ExtractTableName()
-	
+
 	if tableName == "" {
 		return sql
 	}
 
+	// Step 1: Remove database name prefix patterns
+	// Match `dbname`.`table` or dbname.`table` or `dbname`.table or dbname.table
+	// and replace with just `table`
+	
+	// Pattern 1: `dbname`.`table` -> `table`
+	pattern1 := regexp.MustCompile(fmt.Sprintf("`[^`]+`\\s*\\.\\s*`(%s)`", regexp.QuoteMeta(tableName)))
+	sql = pattern1.ReplaceAllString(sql, "`${1}`")
+	
+	// Pattern 2: `dbname`.table -> `table`
+	pattern2 := regexp.MustCompile(fmt.Sprintf("`[^`]+`\\s*\\.\\s*(%s)\\b", regexp.QuoteMeta(tableName)))
+	sql = pattern2.ReplaceAllString(sql, "`${1}`")
+	
+	// Pattern 3: dbname.`table` -> `table`
+	pattern3 := regexp.MustCompile(fmt.Sprintf("[A-Za-z_][A-Za-z0-9_]*\\s*\\.\\s*`(%s)`", regexp.QuoteMeta(tableName)))
+	sql = pattern3.ReplaceAllString(sql, "`${1}`")
+	
+	// Pattern 4: dbname.table -> `table`
+	pattern4 := regexp.MustCompile(fmt.Sprintf("[A-Za-z_][A-Za-z0-9_]*\\s*\\.\\s*(%s)\\b", regexp.QuoteMeta(tableName)))
+	sql = pattern4.ReplaceAllString(sql, "`${1}`")
+
+	// Step 2: Rewrite the table name to newTableName
 	return RewriteTableName(sql, tableName, newTableName)
 }
 
@@ -264,23 +314,23 @@ func BuildSQLWithHint(sql, hint string) string {
 // ParseShardingHints parses sharding hints from SQL comments
 func ParseShardingHints(sql string) map[string]string {
 	hints := make(map[string]string)
-	
+
 	// Find /* ... */ hints
 	hintPattern := regexp.MustCompile(`/\*\s*(?:shardingSphere:)?(\w+)=([^\s*]+)\s*\*/`)
 	matches := hintPattern.FindAllStringSubmatch(sql, -1)
-	
+
 	for _, match := range matches {
 		hints[match[1]] = match[2]
 	}
-	
+
 	return hints
 }
 
 // IsShardingHintPresent checks if sharding hints are present
 func IsShardingHintPresent(sql string) bool {
-	return strings.Contains(sql, "/* shardingSphere:") || 
-	       strings.Contains(sql, "/*:ds=") ||
-	       strings.Contains(sql, "/*:tb=")
+	return strings.Contains(sql, "/* shardingSphere:") ||
+		strings.Contains(sql, "/*:ds=") ||
+		strings.Contains(sql, "/*:tb=")
 }
 
 // GetHintDataSource extracts data source hint

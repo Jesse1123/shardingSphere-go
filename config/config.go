@@ -482,7 +482,8 @@ func ParseActualDataNodes(actualDataNodes string) (interface{}, error) {
 	}
 
 	// Check if it's a range pattern like ds_${0..1}.table_${0..256}
-	rangePattern := regexp.MustCompile(`^(.+?)\.\$\{(\d+)\.\.(\d+)\}\.(.+?)\.\$\{(\d+)\.\.(\d+)\}$`)
+	// Pattern: prefix_${0..1}.table_${0..3}
+	rangePattern := regexp.MustCompile(`^(.+?)_?\$\{(\d+)\.\.(\d+)\}\.(.+?)_?\$\{(\d+)\.\.(\d+)\}$`)
 	match = rangePattern.FindStringSubmatch(actualDataNodes)
 	if match != nil {
 		dsStart, _ := strconv.Atoi(match[2])
@@ -512,16 +513,37 @@ func ParseActualDataNodes(actualDataNodes string) (interface{}, error) {
 	}
 
 	// Check if it's a range with fixed table like ds_${0..1}.table_name
-	dsRangeTableFixed := regexp.MustCompile(`^(.+?)\.\$\{(\d+)\.\.(\d+)\}\.(.+)$`)
+	// Pattern: ds_${0..1}.table_name (data source range, fixed table)
+	dsRangeTableFixed := regexp.MustCompile(`^(.+?)_?\$\{(\d+)\.\.(\d+)\}\.(.+)$`)
 	match = dsRangeTableFixed.FindStringSubmatch(actualDataNodes)
 	if match != nil {
 		dsStart, _ := strconv.Atoi(match[2])
 		dsEnd, _ := strconv.Atoi(match[3])
+		// Check if the table part has its own range pattern (should not match here)
+		if strings.Contains(match[4], "${") {
+			// This is actually ds_${0..1}.table_${0..3} format, skip this pattern
+		} else {
+			return &DataNodeRange{
+				DataSourcePattern: match[1],
+				TablePattern:      match[4],
+				DataSourceRange:   [2]int{dsStart, dsEnd},
+				TableRange:        [2]int{0, 0},
+			}, nil
+		}
+	}
+
+	// Check if it's a fixed data source with table range like ds_0.table_${0..3}
+	// The table pattern should NOT include the trailing underscore
+	fixedDSTableRange := regexp.MustCompile(`^([^.]+)\.(.+?)_?\$\{(\d+)\.\.(\d+)\}$`)
+	match = fixedDSTableRange.FindStringSubmatch(actualDataNodes)
+	if match != nil {
+		tableStart, _ := strconv.Atoi(match[3])
+		tableEnd, _ := strconv.Atoi(match[4])
 		return &DataNodeRange{
 			DataSourcePattern: match[1],
-			TablePattern:      match[4],
-			DataSourceRange:   [2]int{dsStart, dsEnd},
-			TableRange:        [2]int{0, 0},
+			TablePattern:      match[2],
+			DataSourceRange:   [2]int{0, 0},
+			TableRange:        [2]int{tableStart, tableEnd},
 		}, nil
 	}
 
